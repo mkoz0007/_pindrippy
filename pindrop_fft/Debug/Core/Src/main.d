@@ -30,11 +30,11 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_tim_ex.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart_ex.h \
- C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h \
+ C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h \
  ../Drivers/CMSIS/Include/cmsis_compiler.h \
- C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_const_structs.h \
- C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h \
- C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_common_tables.h
+ C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_const_structs.h \
+ C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h \
+ C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_common_tables.h
 ../Core/Inc/main.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
 ../Core/Inc/stm32l4xx_hal_conf.h:
@@ -67,8 +67,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_tim_ex.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart_ex.h:
-C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h:
+C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h:
 ../Drivers/CMSIS/Include/cmsis_compiler.h:
-C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_const_structs.h:
-C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h:
-C:/Users/markk/STM32CubeIDE/workspace_1.18.0/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_common_tables.h:
+C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_const_structs.h:
+C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_math.h:
+C:/Users/markk/OneDrive/Documents/github/pindrippy/pindrop_fft/Drivers/CMSIS/DSP/Include/arm_common_tables.h:

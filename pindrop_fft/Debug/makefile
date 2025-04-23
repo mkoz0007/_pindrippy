@@ -60,8 +60,8 @@ all: main-build
 main-build: pindrop_fft.elf secondary-outputs
 
 # Tool invocations
-pindrop_fft.elf pindrop_fft.map: $(OBJS) $(USER_OBJS) C:\Users\markk\STM32CubeIDE\workspace_1.18.0\pindrop_fft\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "pindrop_fft.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\markk\STM32CubeIDE\workspace_1.18.0\pindrop_fft\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="pindrop_fft.map" -Wl,--gc-sections -static -L"C:\Users\markk\STM32CubeIDE\workspace_1.18.0\pindrop_fft\Drivers\CMSIS\Lib\GCC" -u _printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+pindrop_fft.elf pindrop_fft.map: $(OBJS) $(USER_OBJS) C:\Users\markk\OneDrive\Documents\github\pindrippy\pindrop_fft\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "pindrop_fft.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\markk\OneDrive\Documents\github\pindrippy\pindrop_fft\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="pindrop_fft.map" -Wl,--gc-sections -static -L"C:\Users\markk\OneDrive\Documents\github\pindrippy\pindrop_fft\Drivers\CMSIS\Lib\GCC" -u _printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
