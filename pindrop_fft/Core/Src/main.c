@@ -419,6 +419,10 @@ void process_fft(void) {
   for (int i = 0; i < FFT_SIZE; i++) {
     fft_input[i] = (float32_t)(adc_buffer[i] - 2048) / 2048.0f;
   }
+  // Calculate and remove mean
+  float32_t mean;
+  arm_mean_f32(fft_input, FFT_SIZE, &mean);
+  arm_offset_f32(fft_input, -mean, fft_input, FFT_SIZE);
 
   // Perform FFT
   arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
@@ -449,6 +453,51 @@ void transmit_fft_results(void) {
   len = sprintf(uart_buf, "FFT_DATA_END\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
 }
+
+/* Transmit FFT results via UART */
+//void transmit_fft_results(void) {
+//  #define UART_BUF_SIZE 128  // Increased buffer size
+//  char uart_buf[UART_BUF_SIZE];
+//  int len;
+//  HAL_StatusTypeDef status;
+//  const int fft_points = FFT_SIZE/2;
+//
+//  // Send header with fixed format
+//  len = snprintf(uart_buf, UART_BUF_SIZE, "FFT_DATA_START,%d\r\n", fft_points);
+//  status = HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
+//  if (status != HAL_OK) {
+//    // Handle error (you could add error recovery here)
+//    return;
+//  }
+//
+//  // Send FFT magnitude points with checks
+//  int points_sent = 0;
+//  for (int i = 0; i < fft_points; i++) {
+//    len = snprintf(uart_buf, UART_BUF_SIZE, "%d,%.4f\r\n", i, fft_mag[i]);
+//    if (len >= UART_BUF_SIZE) {
+//      // Handle buffer overflow
+//      len = snprintf(uart_buf, UART_BUF_SIZE, "%d,OVF\r\n", i);
+//    }
+//
+//    status = HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
+//    if (status != HAL_OK) {
+//      // Handle error
+//      break;
+//    }
+//    points_sent++;
+//  }
+//
+//  // Verify all points were sent
+//  if (points_sent != fft_points) {
+//    len = snprintf(uart_buf, UART_BUF_SIZE, "FFT_ERROR,expected %d, sent %d\r\n",
+//                  fft_points, points_sent);
+//    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
+//  }
+//
+//  // Send footer
+//  len = snprintf(uart_buf, UART_BUF_SIZE, "FFT_DATA_END,%d\r\n", points_sent);
+//  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
+//}
 /* USER CODE END 4 */
 
 /**
