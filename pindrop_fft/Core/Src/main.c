@@ -37,6 +37,7 @@
 #define FFT_SIZE 1024
 #define SAMPLE_RATE 80000
 #define AUDIO_BUFFER_SIZE (FFT_SIZE * 2)
+#define CHANGE_THRESHOLD 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -60,7 +61,11 @@ uint32_t adc_index = 0;
 
 float32_t fft_input[FFT_SIZE];
 float32_t fft_output[FFT_SIZE];
-float32_t fft_mag[FFT_SIZE/2];
+
+float32_t fft_mag_A[FFT_SIZE/2];
+float32_t fft_mag_B[FFT_SIZE/2];
+float32_t* fft_mag = fft_mag_A;
+float32_t* fft_mag_prev = fft_mag_B;
 
 arm_rfft_fast_instance_f32 fft_instance;
 /* USER CODE END PV */
@@ -393,7 +398,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD3_Pin */
   GPIO_InitStruct.Pin = LD3_Pin;
@@ -413,6 +428,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   buffer_ready = 1;
 }
 
+// Code to swap output buffers
+void swap_buffers() {
+    float32_t* temp = fft_mag_prev;
+    fft_mag_prev = fft_mag;
+    fft_mag = temp;
+}
+
 /* Process FFT */
 void process_fft(void) {
   // Convert ADC samples to float32 (-1 to 1)
@@ -427,10 +449,25 @@ void process_fft(void) {
   // Perform FFT
   arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
 
-  // Calculate magnitude
+  // Swap pointers to magnitudes to find difference between current and previous fft
+  swap_buffers();
+  float32_t fft_mag_diffsqr_sum = 0;
+  // Calculate magnitude and find difference from previous
   for (int i = 0; i < FFT_SIZE/2; i++) {
     fft_mag[i] = sqrtf(fft_output[2*i]*fft_output[2*i] +
                        fft_output[2*i+1]*fft_output[2*i+1]);
+    fft_mag_diffsqr_sum += (fft_mag[i] - fft_mag_prev[i])*(fft_mag[i] - fft_mag_prev[i]);
+  }
+
+  float32_t fft_change = sqrtf(fft_mag_diffsqr_sum);
+
+  if (fft_change > CHANGE_THRESHOLD) {
+	  // Turn ON the LED
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
+	  HAL_Delay(1000);
+  }
+  else {
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
   }
 }
 
