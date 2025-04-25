@@ -36,8 +36,9 @@
 /* Defines */
 #define FFT_SIZE 1024
 #define SAMPLE_RATE 80000
-#define AUDIO_BUFFER_SIZE (FFT_SIZE * 2)
-#define CHANGE_THRESHOLD 1
+#define AUDIO_BUFFER_SIZE (FFT_SIZE)
+#define CHANGE_THRESHOLD 2.4 // 1.7 for sensitivity, 2.4 for motors/noise (no ROC consideration)
+//#define CHANGE_THRESHOLD 0.1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +50,7 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
@@ -77,6 +79,7 @@ static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc);
 void process_fft(void);
@@ -121,6 +124,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   // Initialize FFT
   arm_rfft_fast_init_f32(&fft_instance, FFT_SIZE);
@@ -128,7 +132,8 @@ int main(void)
   // Start ADC with DMA
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, AUDIO_BUFFER_SIZE);
 
-  // Start timer for sampling rate
+  // Start timer for sampling rate and fft timer
+  HAL_TIM_Base_Start(&htim1);
   HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
@@ -138,7 +143,7 @@ int main(void)
   {
 	  if (buffer_ready) {
 	        process_fft();
-	        transmit_fft_results();
+	        //transmit_fft_results();
 	        buffer_ready = 0;
 	        adc_index = 0;
 	    }
@@ -264,6 +269,53 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 31;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
 
 }
 
@@ -446,6 +498,9 @@ void process_fft(void) {
   arm_mean_f32(fft_input, FFT_SIZE, &mean);
   arm_offset_f32(fft_input, -mean, fft_input, FFT_SIZE);
 
+  // Get time since last fft
+  uint32_t time = __HAL_TIM_GET_COUNTER(&htim1);
+  __HAL_TIM_SET_COUNTER(&htim1, 0);
   // Perform FFT
   arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
 
@@ -466,6 +521,11 @@ void process_fft(void) {
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
 	  HAL_Delay(1000);
   }
+//  if (time > 25000) {
+//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
+//	  HAL_Delay(1000);
+//	  __HAL_TIM_SET_COUNTER(&htim1, 0);
+//  }
   else {
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
   }
