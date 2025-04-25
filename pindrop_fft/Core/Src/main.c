@@ -37,7 +37,7 @@
 #define FFT_SIZE 1024
 #define SAMPLE_RATE 80000
 #define AUDIO_BUFFER_SIZE (FFT_SIZE)
-#define CHANGE_THRESHOLD 2.4 // 1.7 for sensitivity, 2.4 for motors/noise (no ROC consideration)
+#define CHANGE_THRESHOLD 1.7 // 1.7 for sensitivity, 2.4 for motors/noise (no ROC consideration)
 //#define CHANGE_THRESHOLD 0.1
 /* USER CODE END PD */
 

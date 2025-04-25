@@ -2394,7 +2394,7 @@ void process_fft(void) {
  80015dc:	bd90      	pop	{r4, r7, pc}
  80015de:	bf00      	nop
  80015e0:	33333333 	.word	0x33333333
- 80015e4:	40033333 	.word	0x40033333
+ 80015e4:	3ffb3333 	.word	0x3ffb3333
  80015e8:	2000040c 	.word	0x2000040c
  80015ec:	45000000 	.word	0x45000000
  80015f0:	20000c14 	.word	0x20000c14
