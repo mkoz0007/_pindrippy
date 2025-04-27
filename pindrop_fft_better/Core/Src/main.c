@@ -36,8 +36,9 @@
 /* Defines */
 #define FFT_SIZE 1024
 #define SAMPLE_RATE 80000
-#define AUDIO_BUFFER_SIZE (FFT_SIZE)
-#define CHANGE_THRESHOLD 0.2
+#define AUDIO_BUFFER_SIZE (FFT_SIZE*2)
+#define CHANGE_THRESHOLD 1
+#define TRANS_WINDOWS 2
 //#define CHANGE_THRESHOLD 1.3
 /* USER CODE END PD */
 
@@ -58,7 +59,8 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 volatile uint16_t adc_buffer[AUDIO_BUFFER_SIZE];
-volatile uint8_t buffer_ready = 0;
+volatile int buffer_ready = 0;
+int transmit_signal = 0;
 uint32_t adc_index = 0;
 
 float32_t fft_input[FFT_SIZE];
@@ -68,6 +70,8 @@ float32_t fft_mag_A[FFT_SIZE/2];
 float32_t fft_mag_B[FFT_SIZE/2];
 float32_t* fft_mag = fft_mag_A;
 float32_t* fft_mag_prev = fft_mag_B;
+
+uint32_t trans_arr[FFT_SIZE*TRANS_WINDOWS];
 
 arm_rfft_fast_instance_f32 fft_instance;
 /* USER CODE END PV */
@@ -82,8 +86,9 @@ static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc);
-void process_fft(void);
-void transmit_fft_results(void);
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc);
+void process_fft(int);
+void transmit_adc_data(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -142,10 +147,9 @@ int main(void)
   while (1)
   {
 	  if (buffer_ready) {
-	        process_fft();
-	        //transmit_fft_results();
+	        process_fft(buffer_ready);
 	        buffer_ready = 0;
-	        adc_index = 0;
+	        //adc_index = 0;
 	    }
     /* USER CODE END WHILE */
 
@@ -476,8 +480,30 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 /* ADC conversion complete callback */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
   buffer_ready = 1;
+  // If event detected add buffer to transmit window
+  if (transmit_signal) {
+	  // If event was just detected, also add the previous samples (front half) to the transmission
+	  if (transmit_signal == TRANS_WINDOWS) {
+		  for (int i = 0; i < FFT_SIZE; i++) {
+			  trans_arr[i] = adc_buffer[i+FFT_SIZE];
+		  }
+		  transmit_signal--; // Decrement Counter
+	  }
+	  // Add buffer just filled
+	  for (int i = 0; i < FFT_SIZE; i++) {
+		  trans_arr[i+(TRANS_WINDOWS-transmit_signal)*FFT_SIZE] = adc_buffer[i];
+	  }
+	  transmit_signal--; // Decrement Counter
+	  // If counter now 0 then transmit
+	  if (transmit_signal <= 0) {
+		  transmit_adc_data();
+	  	  }
+	  }
+  }
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+  buffer_ready = 2;
 }
 
 // Code to swap output buffers
@@ -488,10 +514,10 @@ void swap_buffers() {
 }
 
 /* Process FFT */
-void process_fft(void) {
+void process_fft(int buffer_ready) {
   // Convert ADC samples to float32 (-1 to 1)
   for (int i = 0; i < FFT_SIZE; i++) {
-    fft_input[i] = (float32_t)(adc_buffer[i] - 2048) / 2048.0f;
+    fft_input[i] = (float32_t)(adc_buffer[i+(buffer_ready-1)*FFT_SIZE] - 2048) / 2048.0f;
   }
   // Calculate and remove mean
   float32_t mean;
@@ -499,8 +525,8 @@ void process_fft(void) {
   arm_offset_f32(fft_input, -mean, fft_input, FFT_SIZE);
 
   // Get time since last fft
-  uint32_t time = __HAL_TIM_GET_COUNTER(&htim1)*0.001; // Time in ms
-  __HAL_TIM_SET_COUNTER(&htim1, 0);
+  //uint32_t time = __HAL_TIM_GET_COUNTER(&htim1)*0.001; // Time in ms
+  //__HAL_TIM_SET_COUNTER(&htim1, 0);
   // Perform FFT
   arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
 
@@ -514,11 +540,12 @@ void process_fft(void) {
     fft_mag_diffsqr_sum += (fft_mag[i] - fft_mag_prev[i])*(fft_mag[i] - fft_mag_prev[i]);
   }
 
-  float32_t fft_change = sqrtf(fft_mag_diffsqr_sum)/time;
+  float32_t fft_change = sqrtf(fft_mag_diffsqr_sum);
 
   if (fft_change > CHANGE_THRESHOLD) {
 	  // Turn ON the LED
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
+	  transmit_signal = TRANS_WINDOWS;
 	  HAL_Delay(1000);
 	  __HAL_TIM_SET_COUNTER(&htim1, 0);
   }
@@ -529,28 +556,30 @@ void process_fft(void) {
 //  }
   else {
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+	   transmit_signal = 0;
   }
 }
 
-/* Transmit FFT results via UART */
-void transmit_fft_results(void) {
+/* Transmit ADC time series data via UART */
+void transmit_adc_data(void) {
   char uart_buf[64];
   int len;
 
-  // Send header
-  len = sprintf(uart_buf, "FFT_DATA_START,%d\r\n", FFT_SIZE/2);
+  // Send header with sample count
+  len = sprintf(uart_buf, "ADC_DATA_START,%d\r\n", FFT_SIZE*TRANS_WINDOWS);
   HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
 
-  // Send FFT magnitude points
-  for (int i = 0; i < FFT_SIZE/2; i++) {
-    len = sprintf(uart_buf, "%d,%.4f\r\n", i, fft_mag[i]);
+  // Send ADC data points
+  for (int i = 0; i < FFT_SIZE*TRANS_WINDOWS; i++) {
+    len = sprintf(uart_buf, "%d,%d\r\n", i, trans_arr[i]);
     HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
   }
 
   // Send footer
-  len = sprintf(uart_buf, "FFT_DATA_END\r\n");
+  len = sprintf(uart_buf, "ADC_DATA_END\r\n");
   HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, HAL_MAX_DELAY);
 }
+
 
 /* Transmit FFT results via UART */
 //void transmit_fft_results(void) {
