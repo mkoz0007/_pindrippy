@@ -37,8 +37,8 @@
 #define FFT_SIZE 1024
 #define SAMPLE_RATE 80000
 #define AUDIO_BUFFER_SIZE (FFT_SIZE*2)
-#define CHANGE_THRESHOLD 1
-#define TRANS_WINDOWS 2
+#define CHANGE_THRESHOLD 1.7
+#define TRANS_WINDOWS 6
 //#define CHANGE_THRESHOLD 1.3
 /* USER CODE END PD */
 
@@ -295,9 +295,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 31;
+  htim1.Init.Prescaler = 32000-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
+  htim1.Init.Period = 1000-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -504,7 +504,46 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
   }
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   buffer_ready = 2;
+  // If event detected add buffer to transmit window
+   if (transmit_signal) {
+ 	  // If event was just detected, also add the previous samples (front half) to the transmission
+ 	  if (transmit_signal == TRANS_WINDOWS) {
+ 		  for (int i = 0; i < FFT_SIZE; i++) {
+ 			  trans_arr[i] = adc_buffer[i];
+ 		  }
+ 		  transmit_signal--; // Decrement Counter
+ 	  }
+ 	  // Add buffer just filled
+ 	  for (int i = 0; i < FFT_SIZE; i++) {
+ 		  trans_arr[i+(TRANS_WINDOWS-transmit_signal)*FFT_SIZE] = adc_buffer[i+FFT_SIZE];
+ 	  }
+ 	  transmit_signal--; // Decrement Counter
+ 	  // If counter now 0 then transmit
+ 	  if (transmit_signal <= 0) {
+ 		  transmit_adc_data();
+ 	  }
+ 	}
 }
+
+// Global variables
+volatile uint8_t led_blink_active = 0;  // Blink state flag
+
+// Function to trigger a single blink (1s on, then off)
+void Trigger_Single_Blink(void) {
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);  // Turn LED on
+  led_blink_active = 1;  // Enable blink tracking
+  HAL_TIM_Base_Start_IT(&htim1);  // Start TIM1 interrupt
+}
+
+// TIM1 interrupt callback
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim->Instance == TIM1 && led_blink_active) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);  // Turn LED off
+    led_blink_active = 0;  // Reset flag
+    HAL_TIM_Base_Stop_IT(&htim1);  // Stop timer
+  }
+}
+
 
 // Code to swap output buffers
 void swap_buffers() {
@@ -546,8 +585,7 @@ void process_fft(int buffer_ready) {
 	  // Turn ON the LED
 	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
 	  transmit_signal = TRANS_WINDOWS;
-	  HAL_Delay(1000);
-	  __HAL_TIM_SET_COUNTER(&htim1, 0);
+	  HAL_Delay(200);
   }
 //  if (time > 25000) {
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);

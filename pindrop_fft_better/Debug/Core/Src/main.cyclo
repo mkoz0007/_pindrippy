@@ -7,8 +7,10 @@
 ../Core/Src/main.c:423:13:MX_DMA_Init	1
 ../Core/Src/main.c:444:13:MX_GPIO_Init	1
 ../Core/Src/main.c:483:6:HAL_ADC_ConvHalfCpltCallback	6
-../Core/Src/main.c:505:6:HAL_ADC_ConvCpltCallback	1
-../Core/Src/main.c:510:6:swap_buffers	1
-../Core/Src/main.c:517:6:process_fft	4
-../Core/Src/main.c:564:6:transmit_adc_data	2
-../Core/Src/main.c:634:6:Error_Handler	1
+../Core/Src/main.c:505:6:HAL_ADC_ConvCpltCallback	6
+../Core/Src/main.c:532:6:Trigger_Single_Blink	1
+../Core/Src/main.c:539:6:HAL_TIM_PeriodElapsedCallback	3
+../Core/Src/main.c:549:6:swap_buffers	1
+../Core/Src/main.c:556:6:process_fft	4
+../Core/Src/main.c:602:6:transmit_adc_data	2
+../Core/Src/main.c:672:6:Error_Handler	1
