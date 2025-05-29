@@ -21,8 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+
 #include "string.h"
 #include "stdio.h"
+#include "stdlib.h"
 
 /* USER CODE END Includes */
 
@@ -33,7 +36,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 #define ADC_BUF_LEN 4096
+#define UART_TX_BUF_SIZE 64  // Buffer size for UART transmission
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,7 +54,8 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 uint16_t adc_buf[ADC_BUF_LEN];
-/* USER CODE END PV */
+uint32_t adc_index = 0;  // To keep track of the current position in ADC buffer
+char uart_tx_buf[UART_TX_BUF_SIZE];  // Buffer for UART transmission/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -58,6 +64,7 @@ static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
+void TransmitADCDataToUART(uint32_t start_index, uint32_t count);
 
 /* USER CODE END PFP */
 
@@ -329,13 +336,26 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
-	int i = 0;
-	i++;
+    // First half of buffer is filled, process the second half
+    TransmitADCDataToUART(ADC_BUF_LEN/2, ADC_BUF_LEN/2);
+}
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+    // Entire buffer is filled, process the first half
+    TransmitADCDataToUART(0, ADC_BUF_LEN/2);
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+void TransmitADCDataToUART(uint32_t start_index, uint32_t count) {
+    uint32_t i;
+    for (i = start_index; i < start_index + count; i++) {
+        // Convert ADC value to string
+        int len = snprintf(uart_tx_buf, UART_TX_BUF_SIZE, "%hu\r\n", adc_buf[i]);
 
+        // Transmit via UART
+        HAL_UART_Transmit(&huart2, (uint8_t*)uart_tx_buf, len, HAL_MAX_DELAY);
+
+    }
 }
 
 /* USER CODE END 4 */
