@@ -60,8 +60,8 @@ all: main-build
 main-build: breath_rate_fusion.elf secondary-outputs
 
 # Tool invocations
-breath_rate_fusion.elf breath_rate_fusion.map: $(OBJS) $(USER_OBJS) C:\Users\markk\OneDrive\Documents\github\breath_rate_fusion\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "breath_rate_fusion.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\markk\OneDrive\Documents\github\breath_rate_fusion\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="breath_rate_fusion.map" -Wl,--gc-sections -static -u_printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+breath_rate_fusion.elf breath_rate_fusion.map: $(OBJS) $(USER_OBJS) C:\Users\markk\OneDrive\Documents\github\pindrippy\breath_rate_fusion\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "breath_rate_fusion.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\markk\OneDrive\Documents\github\pindrippy\breath_rate_fusion\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="breath_rate_fusion.map" -Wl,--gc-sections -static -u_printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
