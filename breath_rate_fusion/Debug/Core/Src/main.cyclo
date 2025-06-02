@@ -1,4 +1,4 @@
-../Core/Src/main.c:97:5:main	4
+../Core/Src/main.c:98:5:main	4
 ../Core/Src/main.c:198:6:SystemClock_Config	4
 ../Core/Src/main.c:259:13:MX_ADC1_Init	4
 ../Core/Src/main.c:326:13:MX_USART2_UART_Init	2
@@ -8,7 +8,8 @@
 ../Core/Src/main.c:415:7:readStrain	1
 ../Core/Src/main.c:421:7:applyMovingAverageFilter	2
 ../Core/Src/main.c:429:6:detectBreaths	9
-../Core/Src/main.c:459:6:updateKalmanFilter	1
-../Core/Src/main.c:469:6:fuseBreathEstimates	4
-../Core/Src/main.c:483:6:sendDataViaUART	1
-../Core/Src/main.c:494:6:Error_Handler	1
+../Core/Src/main.c:460:6:updateKalmanFilter	1
+../Core/Src/main.c:470:6:fuseBreathEstimates	4
+../Core/Src/main.c:484:6:blinkLED	1
+../Core/Src/main.c:494:6:sendDataViaUART	1
+../Core/Src/main.c:505:6:Error_Handler	1

@@ -34,7 +34,7 @@
 #define BUFFER_SIZE 256
 #define SAMPLE_RATE 20 // Hz
 #define FILTER_WINDOW 5
-#define BREATH_THRESHOLD 0.2f
+#define BREATH_THRESHOLD 1.0f
 #define MIN_BREATH_INTERVAL 1.0f // seconds
 #define KALMAN_Q 0.01f // Process noise
 #define KALMAN_R 0.1f  // Measurement noise
@@ -78,10 +78,11 @@ static void MX_ADC1_Init(void);
 float readTemperature(uint16_t adcValue);
 float readStrain(uint16_t adcValue);
 float applyMovingAverageFilter(float newValue, float *history);
-void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals);
+void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals, float threshold);
 void updateKalmanFilter(float measurement, float *estimate, float *error, float *gain);
 void fuseBreathEstimates(float thermistorRate, float strainRate);
 void sendDataViaUART(float breathRate);
+void blinkLED();
 
 /* USER CODE END PFP */
 
@@ -135,6 +136,7 @@ int main(void)
   uint16_t breathCountStrain = 0;
   float breathIntervalsThermistor[10] = {0};
   float breathIntervalsStrain[10] = {0};
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -142,7 +144,6 @@ int main(void)
   while (1)
   {
 	  uint32_t currentTime = HAL_GetTick();
-
 	  // Sample at fixed interval
 	  if (currentTime - lastSampleTime >= (1000 / SAMPLE_RATE)) {
 		lastSampleTime = currentTime;
@@ -162,9 +163,8 @@ int main(void)
 		bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 
 		// Detect breaths
-	  detectBreaths(thermistorHistory, sampleTimestamps, &breathCountThermistor, breathIntervalsThermistor);
-	  detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain);
-
+	  detectBreaths(thermistorHistory, sampleTimestamps, &breathCountThermistor, breathIntervalsThermistor, BREATH_THRESHOLD);
+	  detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain, BREATH_THRESHOLD);
 	  // Calculate breath rates
 	  float thermistorRate = 0, strainRate = 0;
 	  if (breathCountThermistor >= 2) {
@@ -181,7 +181,7 @@ int main(void)
 		fuseBreathEstimates(kalmanEstimateThermistor, kalmanEstimateStrain);
 
 		// Send data
-		sendDataViaUART(1.0f*adcBuffer[1]);
+		sendDataViaUART(1.0f*adcBuffer[0]);
 	  }
 
     /* USER CODE END WHILE */
@@ -387,14 +387,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1|LD3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : LD3_Pin */
-  GPIO_InitStruct.Pin = LD3_Pin;
+  /*Configure GPIO pins : PB1 LD3_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|LD3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD3_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -426,20 +426,20 @@ float applyMovingAverageFilter(float newValue, float *history) {
   return sum / (FILTER_WINDOW + 1);
 }
 
-void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals) {
-  static uint8_t lastStateThermistor = 0;
-  static uint32_t lastPeakTimeThermistor = 0;
+void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals, float threshold) {
+  static uint8_t lastState = 0;
+  static uint32_t lastPeakTime = 0;
 
   // Simple peak detection algorithm
   float current = signal[bufferIndex];
   float previous = signal[(bufferIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE];
   float next = signal[(bufferIndex + 1) % BUFFER_SIZE];
   // Detect peaks (breath out)
-  if (current > previous && current > next && current > BREATH_THRESHOLD) {
-    if (lastStateThermistor == 0) {
-      lastStateThermistor = 1;
-      if (lastPeakTimeThermistor > 0) {
-        float interval = timestamps[bufferIndex] - lastPeakTimeThermistor;
+  if (current > previous && current > next && current > threshold) {
+    if (lastState == 0) {
+      lastState = 1;
+      if (lastPeakTime > 0) {
+        float interval = timestamps[bufferIndex] - lastPeakTime;
         if (interval > MIN_BREATH_INTERVAL * 1000) {
           // Shift previous intervals
           for (int i = 8; i >= 0; i--) {
@@ -447,12 +447,13 @@ void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *
           }
           intervals[0] = interval;
           (*count)++;
+          blinkLED(); // Blink LED on breath detection
         }
       }
-      lastPeakTimeThermistor = timestamps[bufferIndex];
+      lastPeakTime = timestamps[bufferIndex];
     }
-  } else if (current < BREATH_THRESHOLD) {
-    lastStateThermistor = 0;
+  } else if (current < threshold) {
+    lastState = 0;
   }
 }
 
@@ -478,6 +479,16 @@ void fuseBreathEstimates(float thermistorRate, float strainRate) {
   } else {
     fusedBreathRate = 0;
   }
+}
+
+void blinkLED(){
+	// Toggle LED
+	    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_1);
+
+	    // Delay for 500ms
+	    HAL_Delay(1000);
+
+	    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_1);
 }
 
 void sendDataViaUART(float breathRate) {
