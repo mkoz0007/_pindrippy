@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include <math.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -26,18 +27,32 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+// --- Bandpass filter state ---
+typedef struct {
+    float x1, x2;
+    float y1, y2;
+} BiquadState;
 
+// Structure to hold biquad coefficients
+typedef struct {
+    float b0, b1, b2;
+    float a1, a2;
+} BiquadCoeffs;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 #define BUFFER_SIZE 256
 #define SAMPLE_RATE 20 // Hz
 #define FILTER_WINDOW 5
-#define BREATH_THRESHOLD 1.0f
+#define BREATH_THRESHOLD 0.1f
 #define MIN_BREATH_INTERVAL 1.0f // seconds
-#define KALMAN_Q 0.01f // Process noise
-#define KALMAN_R 0.1f  // Measurement noise
+// Covariances for each sensor (tune as needed)
+#define KALMAN_Q_FUSED 3.0f  // Process noise
+#define KALMAN_R_THERMISTOR 5.0f  // Measurement noise for thermistor
+#define KALMAN_R_STRAIN     5.0f  // Measurement noise for strain
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,14 +73,20 @@ float strainHistory[BUFFER_SIZE];
 uint32_t sampleTimestamps[BUFFER_SIZE];
 uint16_t bufferIndex = 0;
 
+// Add these static variables for the high-pass filter state
+static float prevInputThermistor = 0.0f;
+static float prevOutputThermistor = 0.0f;
+static float prevInputStrain = 0.0f;
+static float prevOutputStrain = 0.0f;
+
 // Kalman filter variables
-float kalmanGainThermistor = 0;
-float kalmanEstimateThermistor = 0;
-float kalmanErrorThermistor = 1;
-float kalmanGainStrain = 0;
-float kalmanEstimateStrain = 0;
-float kalmanErrorStrain = 1;
+float kalmanFusedEstimate = 0.0f;
+float kalmanFusedError = 1.0f;
 float fusedBreathRate = 0;
+
+// Biquad filter coefficients
+BiquadCoeffs thermistorCoeffs;
+BiquadCoeffs strainCoeffs;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,14 +97,19 @@ static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 float readTemperature(uint16_t adcValue);
-float readStrain(uint16_t adcValue);
+float readVolts(uint16_t adcValue);
 float applyMovingAverageFilter(float newValue, float *history);
-void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals, float threshold);
-void updateKalmanFilter(float measurement, float *estimate, float *error, float *gain);
-void fuseBreathEstimates(float thermistorRate, float strainRate);
-void sendDataViaUART(float breathRate);
+float highPassFilter(float input, float *prevInput, float *prevOutput, float cutoffHz, float sampleRate);
+void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals, float threshold, uint8_t *breathDetected, uint8_t detectNegativePeak);
+void updateFusedKalmanFilter(
+    float meas1, float meas2,
+    float R1, float R2,
+    float *estimate, float *error);
+void sendDataViaUART(float filteredThermistor, float filteredStrain, float fusedBreathRate, uint8_t breathDetectedThermistor, uint8_t breathDetectedStrain);
 void blinkLED();
-
+float biquadBandpass(float x, BiquadState *state, BiquadCoeffs *coeffs);
+void calcBiquadBandpassCoeffs(float fs, float f_low, float f_high, BiquadCoeffs *coeffs);
+void initFilters();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -134,9 +160,17 @@ int main(void)
   uint32_t lastSampleTime = 0;
   uint16_t breathCountThermistor = 0;
   uint16_t breathCountStrain = 0;
+  uint16_t lastBreathCountThermistor = 0;
+  uint16_t lastBreathCountStrain = 0;
+  uint8_t breathDetectedThermistor = 0;
+  uint8_t breathDetectedStrain = 0;
   float breathIntervalsThermistor[10] = {0};
   float breathIntervalsStrain[10] = {0};
 
+  static BiquadState thermistorBPState = {0};
+  static BiquadState strainBPState = {0};
+
+  initFilters();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -149,13 +183,16 @@ int main(void)
 		lastSampleTime = currentTime;
 
 		// Read and convert ADC values
-		float tempValue = readTemperature(adcBuffer[0]);
-		float strainValue = readStrain(adcBuffer[1]);
+		float tempValue = readVolts(adcBuffer[0]);
+		float strainValue = readVolts(adcBuffer[1]);
 
 		// Apply filters
-		tempValue = applyMovingAverageFilter(tempValue, thermistorHistory);
-		strainValue = applyMovingAverageFilter(strainValue, strainHistory);
+		// tempValue = applyMovingAverageFilter(tempValue, thermistorHistory);
+		// strainValue = applyMovingAverageFilter(strainValue, strainHistory);
 
+    // Apply bandpass filter to remove drift and noise
+    tempValue = biquadBandpass(tempValue, &thermistorBPState, &thermistorCoeffs);
+    strainValue = biquadBandpass(strainValue, &strainBPState, &strainCoeffs);
 		// Store in circular buffer
 		thermistorHistory[bufferIndex] = tempValue;
 		strainHistory[bufferIndex] = strainValue;
@@ -163,29 +200,36 @@ int main(void)
 		bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
 
 		// Detect breaths
-	  detectBreaths(thermistorHistory, sampleTimestamps, &breathCountThermistor, breathIntervalsThermistor, BREATH_THRESHOLD);
-	  detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain, BREATH_THRESHOLD);
+	  detectBreaths(thermistorHistory, sampleTimestamps, &breathCountThermistor, breathIntervalsThermistor, -0.15, &breathDetectedThermistor, 1); // negative peak for temp
+    detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain, 0.06, &breathDetectedStrain, 0); // positive peak for strain
 	  // Calculate breath rates
 	  float thermistorRate = 0, strainRate = 0;
 	  if (breathCountThermistor >= 2) {
 		thermistorRate = 60.0f / (breathIntervalsThermistor[0] / 1000.0f);
-		updateKalmanFilter(thermistorRate, &kalmanEstimateThermistor, &kalmanErrorThermistor, &kalmanGainThermistor);
 	  }
 
 	  if (breathCountStrain >= 2) {
 		strainRate = 60.0f / (breathIntervalsStrain[0] / 1000.0f);
-		updateKalmanFilter(strainRate, &kalmanEstimateStrain, &kalmanErrorStrain, &kalmanGainStrain);
 	  }
 
-	  // Sensor fusion
-		fuseBreathEstimates(kalmanEstimateThermistor, kalmanEstimateStrain);
+    // Update kalman filter and send over uart if there is a change in breath counts for thermistor and strain
+    if (breathCountThermistor != lastBreathCountThermistor && breathCountStrain != lastBreathCountStrain) {
+      // Sensor fusion
+      updateFusedKalmanFilter(
+      thermistorRate, strainRate,
+      KALMAN_R_THERMISTOR, KALMAN_R_STRAIN,
+      &kalmanFusedEstimate, &kalmanFusedError
+      );
+      lastBreathCountThermistor = breathCountThermistor;
+      lastBreathCountStrain = breathCountStrain;
+      }
 
-		// Send data
-		sendDataViaUART(1.0f*adcBuffer[0]);
-	  }
+    // Send data
+    sendDataViaUART(tempValue, strainValue, kalmanFusedEstimate, breathDetectedThermistor, breathDetectedStrain);
+
 
     /* USER CODE END WHILE */
-
+    }
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -412,9 +456,8 @@ float readTemperature(uint16_t adcValue) {
   return temperature;
 }
 
-float readStrain(uint16_t adcValue) {
-  // Convert ADC value to strain measurement
-  // This will depend on your specific strain sensor and amplifier
+float readVolts(uint16_t adcValue) {
+  // Convert ADC value to voltage
   return adcValue * 3.3f / 4095.0f;
 }
 
@@ -426,59 +469,176 @@ float applyMovingAverageFilter(float newValue, float *history) {
   return sum / (FILTER_WINDOW + 1);
 }
 
-void detectBreaths(float *signal, uint32_t *timestamps, uint16_t *count, float *intervals, float threshold) {
-  static uint8_t lastState = 0;
-  static uint32_t lastPeakTime = 0;
+// High-pass filter function (single-pole IIR)
+// cutoffHz: e.g. 0.1 for slow drift removal, sampleRate: e.g. 20
+float highPassFilter(float input, float *prevInput, float *prevOutput, float cutoffHz, float sampleRate) {
+    float RC = 1.0f / (2.0f * 3.1415926f * cutoffHz);
+    float dt = 1.0f / sampleRate;
+    float alpha = RC / (RC + dt);
+    float output = alpha * (*prevOutput + input - *prevInput);
+    *prevInput = input;
+    *prevOutput = output;
+    return output;
+}
 
-  // Simple peak detection algorithm
-  float current = signal[bufferIndex];
-  float previous = signal[(bufferIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE];
-  float next = signal[(bufferIndex + 1) % BUFFER_SIZE];
-  // Detect peaks (breath out)
-  if (current > previous && current > next && current > threshold) {
-    if (lastState == 0) {
-      lastState = 1;
-      if (lastPeakTime > 0) {
-        float interval = timestamps[bufferIndex] - lastPeakTime;
-        if (interval > MIN_BREATH_INTERVAL * 1000) {
-          // Shift previous intervals
-          for (int i = 8; i >= 0; i--) {
-            intervals[i+1] = intervals[i];
-          }
-          intervals[0] = interval;
-          (*count)++;
-          blinkLED(); // Blink LED on breath detection
+float biquadBandpass(float x, BiquadState *state, BiquadCoeffs *coeffs) {
+    float y = coeffs->b0 * x + coeffs->b1 * state->x1 + coeffs->b2 * state->x2
+              - coeffs->a1 * state->y1 - coeffs->a2 * state->y2;
+    state->x2 = state->x1;
+    state->x1 = x;
+    state->y2 = state->y1;
+    state->y1 = y;
+    return y;
+}
+
+// Calculate 2nd-order Butterworth bandpass coefficients
+void calcBiquadBandpassCoeffs(float fs, float f_low, float f_high, BiquadCoeffs *coeffs) {
+    float omega1 = 2.0f * M_PI * f_low / fs;
+    float omega2 = 2.0f * M_PI * f_high / fs;
+    float bw = omega2 - omega1;
+    float omega0 = (omega2 + omega1) / 2.0f;
+    float Q = omega0 / bw;
+
+    float alpha = sinf(omega0) / (2.0f * Q);
+    float cos_omega0 = cosf(omega0);
+
+    float b0 = alpha;
+    float b1 = 0.0f;
+    float b2 = -alpha;
+    float a0 = 1.0f + alpha;
+    float a1 = -2.0f * cos_omega0;
+    float a2 = 1.0f - alpha;
+
+    // Normalize coefficients
+    coeffs->b0 = b0 / a0;
+    coeffs->b1 = b1 / a0;
+    coeffs->b2 = b2 / a0;
+    coeffs->a1 = a1 / a0;
+    coeffs->a2 = a2 / a0;
+}
+
+void initFilters() {
+    // For 20Hz sample rate, 0.05Hz - 1Hz band
+    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.05f, 1.0f, &thermistorCoeffs);
+    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.01, 2.0f, &strainCoeffs);
+}
+
+void detectBreaths(
+    float *signal,
+    uint32_t *timestamps,
+    uint16_t *count,
+    float *intervals,
+    float threshold,
+    uint8_t *breathDetected,
+    uint8_t detectNegativePeak)
+{
+    // Make lastState and lastPeakTime static per function call (per sensor)
+    static uint8_t lastStateThermistor = 0;
+    static uint8_t lastStateStrain = 0;
+    static uint32_t lastPeakTimeThermistor = 0;
+    static uint32_t lastPeakTimeStrain = 0;
+
+    int prev = (bufferIndex - 3 + BUFFER_SIZE) % BUFFER_SIZE;
+    int curr = (bufferIndex - 2 + BUFFER_SIZE) % BUFFER_SIZE;
+    int next = (bufferIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+
+    float previous = signal[prev];
+    float current  = signal[curr];
+    float nextVal  = signal[next];
+
+    *breathDetected = 0; // Default to no breath detected
+
+    // Use separate state for each sensor
+    uint8_t *lastState = detectNegativePeak ? &lastStateThermistor : &lastStateStrain;
+    uint32_t *lastPeakTime = detectNegativePeak ? &lastPeakTimeThermistor : &lastPeakTimeStrain;
+
+    if (detectNegativePeak) {
+        // Detect negative peaks (e.g., inhale for thermistor)
+        if (current < previous && current < nextVal && current < threshold) {
+            if (*lastState == 0) {
+                *lastState = 1;
+                if (*lastPeakTime > 0) {
+                    float interval = timestamps[curr] - *lastPeakTime;
+                    if (interval > MIN_BREATH_INTERVAL * 1000) {
+                        for (int i = 8; i >= 0; i--) {
+                            intervals[i+1] = intervals[i];
+                        }
+                        intervals[0] = interval;
+                        (*count)++;
+                        *breathDetected = 1;
+                        *lastPeakTime = timestamps[curr];
+                    }
+                } else {
+                    *lastPeakTime = timestamps[curr];
+                }
+            }
+        } else if (current > threshold) {
+            *lastState = 0;
         }
-      }
-      lastPeakTime = timestamps[bufferIndex];
+    } else {
+        // Detect positive peaks (e.g., exhale for strain)
+        if (current > previous && current > nextVal && current > threshold) {
+            if (*lastState == 0) {
+                *lastState = 1;
+                if (*lastPeakTime > 0) {
+                    float interval = timestamps[curr] - *lastPeakTime;
+                    if (interval > MIN_BREATH_INTERVAL * 1000) {
+                        for (int i = 8; i >= 0; i--) {
+                            intervals[i+1] = intervals[i];
+                        }
+                        intervals[0] = interval;
+                        (*count)++;
+                        *breathDetected = 1;
+                        *lastPeakTime = timestamps[curr];
+                    }
+                } else {
+                    *lastPeakTime = timestamps[curr];
+                }
+            }
+        } else if (current < threshold) {
+            *lastState = 0;
+        }
     }
-  } else if (current < threshold) {
-    lastState = 0;
-  }
 }
 
-void updateKalmanFilter(float measurement, float *estimate, float *error, float *gain) {
-  // Prediction
-  float errorPrediction = *error + KALMAN_Q;
+// --- Multisensor Kalman update function ---
+void updateFusedKalmanFilter(
+    float meas1, float meas2,
+    float R1, float R2,
+    float *estimate, float *error)
+{
+    // Prediction
+    float errorPrediction = *error + KALMAN_Q_FUSED;
 
-  // Update
-  *gain = errorPrediction / (errorPrediction + KALMAN_R);
-  *estimate = *estimate + *gain * (measurement - *estimate);
-  *error = (1 - *gain) * errorPrediction;
-}
+    // If both measurements are valid (>0), fuse both
+    if (meas1 > 0 && meas2 > 0) {
+        // Combined measurement and noise
+        float z = (meas1 / R1 + meas2 / R2) / (1.0f / R1 + 1.0f / R2);
+        float R = 1.0f / (1.0f / R1 + 1.0f / R2);
 
-void fuseBreathEstimates(float thermistorRate, float strainRate) {
-  // Simple weighted average - can be made more sophisticated
-  // Thermistor gets more weight when it detects breaths
-  float weightThermistor = (thermistorRate > 0) ? 0.7f : 0.0f;
-  float weightStrain = (strainRate > 0) ? 0.3f : 0.0f;
+        // Kalman gain
+        float K = errorPrediction / (errorPrediction + R);
 
-  if (weightThermistor + weightStrain > 0) {
-    fusedBreathRate = (thermistorRate * weightThermistor + strainRate * weightStrain) /
-                     (weightThermistor + weightStrain);
-  } else {
-    fusedBreathRate = 0;
-  }
+        // Update
+        *estimate = *estimate + K * (z - *estimate);
+        *error = (1 - K) * errorPrediction;
+    }
+    // Only thermistor valid
+    else if (meas1 > 0) {
+        float K = errorPrediction / (errorPrediction + R1);
+        *estimate = *estimate + K * (meas1 - *estimate);
+        *error = (1 - K) * errorPrediction;
+    }
+    // Only strain valid
+    else if (meas2 > 0) {
+        float K = errorPrediction / (errorPrediction + R2);
+        *estimate = *estimate + K * (meas2 - *estimate);
+        *error = (1 - K) * errorPrediction;
+    }
+    // No valid measurement, prediction only
+    else {
+        *error = errorPrediction;
+    }
 }
 
 void blinkLED(){
@@ -491,9 +651,13 @@ void blinkLED(){
 	    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_1);
 }
 
-void sendDataViaUART(float breathRate) {
-  char buffer[32];
-  int length = snprintf(buffer, sizeof(buffer), "%.2f\n", breathRate);
+// Update sendDataViaUART to include the detection flags:
+void sendDataViaUART(float filteredThermistor, float filteredStrain, float fusedBreathRate, uint8_t breathDetectedThermistor, uint8_t breathDetectedStrain) {
+  char buffer[80];
+  // Format: thermistor, strain, fused_rate, breathDetectedThermistor, breathDetectedStrain\n
+  int length = snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.2f,%d,%d\n",
+                        filteredThermistor, filteredStrain, fusedBreathRate,
+                        breathDetectedThermistor, breathDetectedStrain);
   HAL_UART_Transmit(&huart2, (uint8_t*)buffer, length, HAL_MAX_DELAY);
 }
 /* USER CODE END 4 */
