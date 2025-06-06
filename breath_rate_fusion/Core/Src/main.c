@@ -49,9 +49,9 @@ typedef struct {
 #define BREATH_THRESHOLD 0.1f
 #define MIN_BREATH_INTERVAL 1.0f // seconds
 // Covariances for each sensor (tune as needed)
-#define KALMAN_Q_FUSED 3.0f  // Process noise
-#define KALMAN_R_THERMISTOR 5.0f  // Measurement noise for thermistor
-#define KALMAN_R_STRAIN     5.0f  // Measurement noise for strain
+#define KALMAN_Q_FUSED 1.0f  // Process noise
+#define KALMAN_R_THERMISTOR 3.0f  // Measurement noise for thermistor
+#define KALMAN_R_STRAIN     10.0f  // Measurement noise for strain
 
 /* USER CODE END PD */
 
@@ -105,7 +105,15 @@ void updateFusedKalmanFilter(
     float meas1, float meas2,
     float R1, float R2,
     float *estimate, float *error);
-void sendDataViaUART(float filteredThermistor, float filteredStrain, float fusedBreathRate, uint8_t breathDetectedThermistor, uint8_t breathDetectedStrain);
+void sendDataViaUART(
+    float filteredThermistor,
+    float filteredStrain,
+    float fusedBreathRate,
+    float thermistorRate,
+    float strainRate,
+    uint8_t breathDetectedThermistor,
+    uint8_t breathDetectedStrain
+);
 void blinkLED();
 float biquadBandpass(float x, BiquadState *state, BiquadCoeffs *coeffs);
 void calcBiquadBandpassCoeffs(float fs, float f_low, float f_high, BiquadCoeffs *coeffs);
@@ -201,7 +209,7 @@ int main(void)
 
 		// Detect breaths
 	  detectBreaths(thermistorHistory, sampleTimestamps, &breathCountThermistor, breathIntervalsThermistor, -0.15, &breathDetectedThermistor, 1); // negative peak for temp
-    detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain, 0.06, &breathDetectedStrain, 0); // positive peak for strain
+	  detectBreaths(strainHistory, sampleTimestamps, &breathCountStrain, breathIntervalsStrain, 0.25, &breathDetectedStrain, 0); // positive peak for strain
 	  // Calculate breath rates
 	  float thermistorRate = 0, strainRate = 0;
 	  if (breathCountThermistor >= 2) {
@@ -225,7 +233,15 @@ int main(void)
       }
 
     // Send data
-    sendDataViaUART(tempValue, strainValue, kalmanFusedEstimate, breathDetectedThermistor, breathDetectedStrain);
+    sendDataViaUART(
+    tempValue,
+    strainValue,
+    kalmanFusedEstimate,
+    thermistorRate,
+    strainRate,
+    breathDetectedThermistor,
+    breathDetectedStrain
+);
 
 
     /* USER CODE END WHILE */
@@ -519,8 +535,8 @@ void calcBiquadBandpassCoeffs(float fs, float f_low, float f_high, BiquadCoeffs 
 
 void initFilters() {
     // For 20Hz sample rate, 0.05Hz - 1Hz band
-    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.05f, 1.0f, &thermistorCoeffs);
-    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.01, 2.0f, &strainCoeffs);
+    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.01f, 1.0f, &thermistorCoeffs);
+    calcBiquadBandpassCoeffs(SAMPLE_RATE, 0.01f, 1.0f, &strainCoeffs);
 }
 
 void detectBreaths(
@@ -652,13 +668,22 @@ void blinkLED(){
 }
 
 // Update sendDataViaUART to include the detection flags:
-void sendDataViaUART(float filteredThermistor, float filteredStrain, float fusedBreathRate, uint8_t breathDetectedThermistor, uint8_t breathDetectedStrain) {
-  char buffer[80];
-  // Format: thermistor, strain, fused_rate, breathDetectedThermistor, breathDetectedStrain\n
-  int length = snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.2f,%d,%d\n",
-                        filteredThermistor, filteredStrain, fusedBreathRate,
-                        breathDetectedThermistor, breathDetectedStrain);
-  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, length, HAL_MAX_DELAY);
+void sendDataViaUART(
+    float filteredThermistor,
+    float filteredStrain,
+    float fusedBreathRate,
+    float thermistorRate,
+    float strainRate,
+    uint8_t breathDetectedThermistor,
+    uint8_t breathDetectedStrain
+) {
+    char buffer[120];
+    // Format: thermistor, strain, fused_rate, thermistor_rate, strain_rate, breathDetectedThermistor, breathDetectedStrain\n
+    int length = snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.2f,%.2f,%.2f,%d,%d\n",
+                          filteredThermistor, filteredStrain, fusedBreathRate,
+                          thermistorRate, strainRate,
+                          breathDetectedThermistor, breathDetectedStrain);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, length, HAL_MAX_DELAY);
 }
 /* USER CODE END 4 */
 
